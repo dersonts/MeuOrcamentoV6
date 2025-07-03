@@ -79,6 +79,14 @@ export function UnifiedChatBot() {
           };
         }
 
+        // Verificar se há categorias disponíveis
+        if (!categorias || categorias.length === 0) {
+          return {
+            type: 'error',
+            message: 'Você precisa ter pelo menos uma categoria cadastrada para criar um lançamento. As categorias são criadas automaticamente quando você cria seu perfil. Tente recarregar a página ou criar uma categoria manualmente.'
+          };
+        }
+
         const valor = parseFloat(match[1].replace(',', '.'));
         
         // Validar valor
@@ -91,14 +99,40 @@ export function UnifiedChatBot() {
 
         const descricao = match[2].trim();
         
-        // Tentar encontrar categoria
-        const categoria = categorias.find(c => 
+        // Tentar encontrar categoria por nome
+        let categoria = categorias.find(c => 
           c.nome.toLowerCase().includes(descricao.toLowerCase()) ||
           descricao.toLowerCase().includes(c.nome.toLowerCase())
         );
 
+        // Se não encontrou categoria específica, usar categoria padrão de despesa
+        if (!categoria) {
+          categoria = categorias.find(c => c.tipo === 'DESPESA');
+        }
+
+        // Se ainda não encontrou, usar a primeira categoria disponível
+        if (!categoria) {
+          categoria = categorias[0];
+        }
+
+        // Verificação final de segurança
+        if (!categoria || !categoria.id) {
+          return {
+            type: 'error',
+            message: 'Não foi possível encontrar uma categoria válida. Verifique se você possui categorias cadastradas.'
+          };
+        }
+
         // Usar primeira conta ativa disponível
         const contaAtiva = contas.find(c => c.ativa !== false) || contas[0];
+
+        // Verificação final de segurança para conta
+        if (!contaAtiva || !contaAtiva.id) {
+          return {
+            type: 'error',
+            message: 'Não foi possível encontrar uma conta válida. Verifique se você possui contas cadastradas.'
+          };
+        }
 
         return {
           type: 'create_lancamento',
@@ -106,7 +140,7 @@ export function UnifiedChatBot() {
             descricao: `Gasto com ${descricao}`,
             valor,
             tipo: 'DESPESA',
-            categoria_id: categoria?.id || categorias.find(c => c.tipo === 'DESPESA')?.id,
+            categoria_id: categoria.id,
             conta_id: contaAtiva.id,
             data: new Date().toISOString().split('T')[0]
           }
