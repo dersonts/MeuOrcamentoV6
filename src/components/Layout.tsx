@@ -23,8 +23,7 @@ import {
 } from 'lucide-react';
 import { AuthService, type AuthUser } from '../lib/auth';
 import { DatabaseService } from '../lib/database';
-import { ChatBot } from './ChatBot/ChatBot';
-import { ChatBotExecutivo } from './ChatBot/ChatBotExecutivo';
+import { UnifiedChatBot } from './ChatBot/UnifiedChatBot';
 import { NotificationPanel } from './Notifications/NotificationPanel';
 import { AnomaliaDetector } from './AnomaliaDetector/AnomaliaDetector';
 
@@ -449,8 +448,7 @@ export function Layout({ children, currentPage, onPageChange, user }: LayoutProp
         </div>
       </main>
 
-      <ChatBot />
-      <ChatBotExecutivo />
+      <UnifiedChatBot />
     </div>
   );
 }

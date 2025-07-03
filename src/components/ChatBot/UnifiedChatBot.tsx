@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { MessageCircle, X, Send, Bot, User, Plus, DollarSign, Target, CreditCard } from 'lucide-react';
+import { MessageCircle, X, Send, Bot, User, Plus, DollarSign, Target, CreditCard, Zap } from 'lucide-react';
 import { AzureOpenAIService } from '../../lib/azureOpenAI';
 import { DatabaseService } from '../../lib/database';
 import { formatCurrency } from '../../lib/utils';
@@ -16,12 +16,12 @@ interface Message {
   };
 }
 
-export function ChatBotExecutivo() {
+export function UnifiedChatBot() {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
-      content: 'Olá! Sou seu assistente financeiro executivo. Posso ajudá-lo a criar lançamentos, metas e contas através de comandos de voz ou texto. Experimente dizer: "Criar um lançamento de R$ 50 para alimentação" ou "Definir meta de economia de R$ 1000".',
+      content: 'Olá! Sou seu assistente financeiro inteligente. Posso ajudá-lo com:\n\n💬 Análises e consultas sobre suas finanças\n⚡ Comandos rápidos como "Gastei R$ 50 com alimentação"\n🎯 Criação de metas: "Criar meta de R$ 1000"\n🏦 Novas contas: "Criar conta poupança"\n\nComo posso ajudá-lo hoje?',
       sender: 'bot',
       timestamp: new Date()
     }
@@ -254,7 +254,7 @@ export function ChatBotExecutivo() {
           await loadData();
         }
       } else {
-        // Resposta normal do chatbot
+        // Resposta normal do chatbot usando IA
         const response = await AzureOpenAIService.getChatResponse(inputMessage);
         
         const botMessage: Message = {
@@ -307,25 +307,28 @@ export function ChatBotExecutivo() {
       {/* Chat Button */}
       <button
         onClick={() => setIsOpen(true)}
-        className={`fixed bottom-20 right-6 w-14 h-14 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-full shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center z-50 ${
+        className={`fixed bottom-6 right-6 w-14 h-14 bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 text-white rounded-full shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center z-50 ${
           isOpen ? 'scale-0' : 'scale-100'
         }`}
       >
-        <MessageCircle className="w-6 h-6" />
+        <div className="relative">
+          <MessageCircle className="w-6 h-6" />
+          <Zap className="w-3 h-3 absolute -top-1 -right-1 text-yellow-300" />
+        </div>
       </button>
 
       {/* Chat Window */}
       {isOpen && (
         <div className="fixed bottom-6 right-6 w-96 h-[500px] bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col z-50">
           {/* Header */}
-          <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-gradient-to-r from-purple-600 to-blue-600 rounded-t-2xl">
+          <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 rounded-t-2xl">
             <div className="flex items-center space-x-3">
               <div className="w-8 h-8 bg-white bg-opacity-20 rounded-full flex items-center justify-center">
                 <Bot className="w-5 h-5 text-white" />
               </div>
               <div>
-                <h3 className="font-semibold text-white">Assistente Executivo</h3>
-                <p className="text-xs text-purple-100">Crie lançamentos, metas e contas</p>
+                <h3 className="font-semibold text-white">Assistente Financeiro IA</h3>
+                <p className="text-xs text-blue-100">Chat inteligente + Comandos rápidos</p>
               </div>
             </div>
             <button
@@ -348,7 +351,7 @@ export function ChatBotExecutivo() {
                 }`}>
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
                     message.sender === 'user' 
-                      ? 'bg-purple-600 text-white' 
+                      ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white' 
                       : 'bg-gray-100 text-gray-600'
                   }`}>
                     {message.sender === 'user' ? (
@@ -359,7 +362,7 @@ export function ChatBotExecutivo() {
                   </div>
                   <div className={`px-4 py-2 rounded-2xl ${
                     message.sender === 'user'
-                      ? 'bg-purple-600 text-white'
+                      ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white'
                       : 'bg-gray-100 text-gray-800'
                   }`}>
                     <p className="text-sm whitespace-pre-wrap">{message.content}</p>
@@ -374,7 +377,7 @@ export function ChatBotExecutivo() {
                     )}
                     
                     <p className={`text-xs mt-1 ${
-                      message.sender === 'user' ? 'text-purple-100' : 'text-gray-500'
+                      message.sender === 'user' ? 'text-blue-100' : 'text-gray-500'
                     }`}>
                       {message.timestamp.toLocaleTimeString('pt-BR', { 
                         hour: '2-digit', 
@@ -414,14 +417,14 @@ export function ChatBotExecutivo() {
                 value={inputMessage}
                 onChange={(e) => setInputMessage(e.target.value)}
                 onKeyPress={handleKeyPress}
-                placeholder="Ex: Criar lançamento de R$ 50 para alimentação"
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm"
+                placeholder="Digite sua mensagem ou comando..."
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                 disabled={isLoading}
               />
               <button
                 onClick={handleSendMessage}
                 disabled={!inputMessage.trim() || isLoading}
-                className="px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-3 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:from-blue-700 hover:to-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Send className="w-4 h-4" />
               </button>
@@ -429,7 +432,7 @@ export function ChatBotExecutivo() {
             
             {/* Comandos de exemplo */}
             <div className="mt-2 text-xs text-gray-500">
-              <p><strong>Exemplos:</strong></p>
+              <p><strong>Comandos rápidos:</strong></p>
               <p>• "Gastei R$ 25 com alimentação"</p>
               <p>• "Criar meta de R$ 1000"</p>
               <p>• "Nova conta poupança"</p>
