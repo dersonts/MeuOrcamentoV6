@@ -57,7 +57,7 @@ export function ChatBotExecutivo() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const parseCommand = (message: string): { type: string; data: any } | null => {
+  const parseCommand = (message: string): { type: string; data?: any; message?: string } | null => {
     const msg = message.toLowerCase();
 
     // Padrões para criar lançamento
@@ -71,7 +71,24 @@ export function ChatBotExecutivo() {
     for (const pattern of lancamentoPatterns) {
       const match = message.match(pattern);
       if (match) {
+        // Verificar se há contas disponíveis
+        if (!contas || contas.length === 0) {
+          return {
+            type: 'error',
+            message: 'Você precisa ter pelo menos uma conta cadastrada para criar um lançamento. Crie uma conta primeiro dizendo: "Criar conta corrente".'
+          };
+        }
+
         const valor = parseFloat(match[1].replace(',', '.'));
+        
+        // Validar valor
+        if (isNaN(valor) || valor <= 0) {
+          return {
+            type: 'error',
+            message: 'O valor do lançamento deve ser um número positivo.'
+          };
+        }
+
         const descricao = match[2].trim();
         
         // Tentar encontrar categoria
@@ -80,6 +97,9 @@ export function ChatBotExecutivo() {
           descricao.toLowerCase().includes(c.nome.toLowerCase())
         );
 
+        // Usar primeira conta ativa disponível
+        const contaAtiva = contas.find(c => c.ativa !== false) || contas[0];
+
         return {
           type: 'create_lancamento',
           data: {
@@ -87,7 +107,7 @@ export function ChatBotExecutivo() {
             valor,
             tipo: 'DESPESA',
             categoria_id: categoria?.id || categorias.find(c => c.tipo === 'DESPESA')?.id,
-            conta_id: contas[0]?.id,
+            conta_id: contaAtiva.id,
             data: new Date().toISOString().split('T')[0]
           }
         };
@@ -105,6 +125,14 @@ export function ChatBotExecutivo() {
       const match = message.match(pattern);
       if (match) {
         const valor = parseFloat(match[1].replace(',', '.'));
+        
+        // Validar valor da meta
+        if (isNaN(valor) || valor <= 0) {
+          return {
+            type: 'error',
+            message: 'O valor da meta deve ser um número positivo.'
+          };
+        }
         
         return {
           type: 'create_meta',
@@ -130,6 +158,13 @@ export function ChatBotExecutivo() {
       const match = message.match(pattern);
       if (match) {
         const nome = match[1].trim();
+        
+        if (!nome || nome.length < 2) {
+          return {
+            type: 'error',
+            message: 'O nome da conta deve ter pelo menos 2 caracteres.'
+          };
+        }
         
         return {
           type: 'create_conta',
@@ -191,21 +226,33 @@ export function ChatBotExecutivo() {
       const command = parseCommand(inputMessage);
       
       if (command) {
-        // Executar ação
-        const result = await executeAction(command);
-        
-        const botMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          content: result,
-          sender: 'bot',
-          timestamp: new Date(),
-          action: { ...command, executed: true }
-        };
+        if (command.type === 'error') {
+          // Exibir mensagem de erro
+          const botMessage: Message = {
+            id: (Date.now() + 1).toString(),
+            content: `❌ ${command.message}`,
+            sender: 'bot',
+            timestamp: new Date()
+          };
 
-        setMessages(prev => [...prev, botMessage]);
-        
-        // Recarregar dados após criar algo
-        await loadData();
+          setMessages(prev => [...prev, botMessage]);
+        } else {
+          // Executar ação
+          const result = await executeAction(command);
+          
+          const botMessage: Message = {
+            id: (Date.now() + 1).toString(),
+            content: result,
+            sender: 'bot',
+            timestamp: new Date(),
+            action: { ...command, executed: true }
+          };
+
+          setMessages(prev => [...prev, botMessage]);
+          
+          // Recarregar dados após criar algo
+          await loadData();
+        }
       } else {
         // Resposta normal do chatbot
         const response = await AzureOpenAIService.getChatResponse(inputMessage);
