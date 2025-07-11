@@ -18,12 +18,25 @@ const config: AzureOpenAIConfig = {
 export class AzureOpenAIService {
   private static systemPrompt = `
 Você é um assistente financeiro inteligente especializado em gestão de finanças pessoais.
-Seu objetivo é ajudar usuários a entender e gerenciar suas finanças.
-Responda de forma clara, objetiva e educativa, baseando-se nos dados fornecidos no contexto.
-Mantenha um tom amigável e profissional.
-Sempre que usar dados para responder, mencione isso (ex: "Consultando seus dados...", "De acordo com seus lançamentos...").
-Se não houver dados no contexto para responder, informe ao usuário de forma clara.
-Limite suas respostas a tópicos relacionados a finanças pessoais.
+Seu objetivo é ajudar usuários a entender e gerenciar suas finanças de forma inteligente e educativa.
+
+INSTRUÇÕES IMPORTANTES:
+1. Responda de forma clara, objetiva e educativa
+2. Use um tom amigável e profissional
+3. Sempre que usar dados para responder, mencione isso (ex: "Consultando seus dados...", "De acordo com seus lançamentos...")
+4. Se não houver dados no contexto para responder, informe ao usuário de forma clara
+5. Limite suas respostas a tópicos relacionados a finanças pessoais
+6. Forneça insights valiosos e sugestões práticas
+7. Use emojis moderadamente para tornar a conversa mais amigável
+8. Seja proativo em sugerir melhorias financeiras quando apropriado
+
+CAPACIDADES ESPECIAIS:
+- Análise de padrões de gastos
+- Sugestões de economia
+- Alertas sobre gastos anômalos
+- Previsões financeiras
+- Educação financeira personalizada
+- Comparações e benchmarks
 `;
 
   /**
@@ -45,8 +58,8 @@ Limite suas respostas a tópicos relacionados a finanças pessoais.
             { role: 'system', content: this.systemPrompt },
             { role: 'user', content: userPrompt }
           ],
-          max_tokens: 800,
-          temperature: 0.2,
+          max_tokens: 1000,
+          temperature: 0.3,
           top_p: 0.95,
           frequency_penalty: 0,
           presence_penalty: 0
@@ -78,7 +91,7 @@ Limite suas respostas a tópicos relacionados a finanças pessoais.
    */
   static async getChatResponse(userMessage: string): Promise<string> {
     const lowerCaseMessage = userMessage.toLowerCase();
-    let contextPrompt = 'O usuário não pediu dados financeiros específicos.';
+    let contextPrompt = 'O usuário fez uma pergunta geral sobre finanças.';
     let currency = 'BRL'; // Moeda Padrão
 
     try {
@@ -94,59 +107,129 @@ Limite suas respostas a tópicos relacionados a finanças pessoais.
         }
       }
 
-      const expenseKeywords = ['gasto', 'gastei', 'gastos', 'despesa', 'despesas'];
-      const balanceKeywords = ['saldo', 'saldos', 'conta', 'contas'];
-      const summaryKeywords = ['resumo', 'visão geral', 'geral', 'total'];
-      const goalKeywords = ['meta', 'metas', 'objetivo', 'objetivos'];
+      // Palavras-chave para diferentes tipos de análise
+      const expenseKeywords = ['gasto', 'gastei', 'gastos', 'despesa', 'despesas', 'gastando', 'gastar'];
+      const balanceKeywords = ['saldo', 'saldos', 'conta', 'contas', 'dinheiro', 'valor'];
+      const summaryKeywords = ['resumo', 'visão geral', 'geral', 'total', 'situação', 'como está', 'como estão'];
+      const goalKeywords = ['meta', 'metas', 'objetivo', 'objetivos', 'economizar', 'poupar'];
+      const categoryKeywords = ['categoria', 'categorias', 'onde', 'gastando mais', 'maior gasto'];
+      const incomeKeywords = ['receita', 'receitas', 'ganho', 'renda', 'salário'];
+      const budgetKeywords = ['orçamento', 'orçamentos', 'planejamento', 'planejar'];
+      const trendKeywords = ['tendência', 'evolução', 'crescimento', 'comparar', 'mês passado'];
       
+      // Buscar dados baseado no contexto da mensagem
       if (expenseKeywords.some(keyword => lowerCaseMessage.includes(keyword))) {
         const data = await DatabaseService.getGastosPorCategoria(
           new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString(),
           new Date().toISOString()
         );
-        contextPrompt = `Dados de gastos do usuário para este mês (agrupados por categoria):\n${JSON.stringify(data, null, 2)}`;
-      } else if (balanceKeywords.some(keyword => lowerCaseMessage.includes(keyword))) {
+        contextPrompt = `📊 Dados de gastos do usuário para este mês (agrupados por categoria):\n${JSON.stringify(data, null, 2)}`;
+      } 
+      else if (balanceKeywords.some(keyword => lowerCaseMessage.includes(keyword))) {
         const contas = await DatabaseService.getContas();
-        contextPrompt = `Dados de saldo das contas do usuário:\n${JSON.stringify(contas.map(c => ({ nome: c.nome, saldo_atual: c.saldo_atual })), null, 2)}`;
-      } else if (summaryKeywords.some(keyword => lowerCaseMessage.includes(keyword))) {
-        const resumo = await DatabaseService.getResumoFinanceiro(
+        contextPrompt = `💰 Dados de saldo das contas do usuário:\n${JSON.stringify(contas.map(c => ({ 
+          nome: c.nome, 
+          tipo: c.tipo,
+          saldo_atual: c.saldo_atual,
+          limite_credito: c.limite_credito 
+        })), null, 2)}`;
+      } 
+      else if (summaryKeywords.some(keyword => lowerCaseMessage.includes(keyword))) {
+        const [resumo, gastosPorCategoria, contas] = await Promise.all([
+          DatabaseService.getResumoFinanceiro(
             new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString(),
             new Date().toISOString()
-        );
-        contextPrompt = `Dados de resumo financeiro do usuário para o mês atual:\n${JSON.stringify(resumo, null, 2)}`;
-      } else if (goalKeywords.some(keyword => lowerCaseMessage.includes(keyword))) {
+          ),
+          DatabaseService.getGastosPorCategoria(
+            new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString(),
+            new Date().toISOString()
+          ),
+          DatabaseService.getContas()
+        ]);
+        contextPrompt = `📈 Resumo financeiro completo do usuário para o mês atual:
+        
+RESUMO GERAL: ${JSON.stringify(resumo, null, 2)}
+
+GASTOS POR CATEGORIA: ${JSON.stringify(gastosPorCategoria, null, 2)}
+
+CONTAS: ${JSON.stringify(contas.map(c => ({ 
+          nome: c.nome, 
+          tipo: c.tipo,
+          saldo_atual: c.saldo_atual 
+        })), null, 2)}`;
+      } 
+      else if (goalKeywords.some(keyword => lowerCaseMessage.includes(keyword))) {
         const metas = await DatabaseService.getMetas();
-        contextPrompt = `Dados sobre as metas financeiras do usuário:\n${JSON.stringify(metas.map(m => ({ nome: m.nome, valor_meta: m.valor_meta, valor_atual: m.valor_atual, status: m.status })), null, 2)}`;
+        contextPrompt = `🎯 Dados sobre as metas financeiras do usuário:\n${JSON.stringify(metas.map(m => ({ 
+          nome: m.nome, 
+          tipo: m.tipo,
+          valor_meta: m.valor_meta, 
+          valor_atual: m.valor_atual, 
+          status: m.status,
+          data_inicio: m.data_inicio,
+          data_fim: m.data_fim
+        })), null, 2)}`;
+      }
+      else if (categoryKeywords.some(keyword => lowerCaseMessage.includes(keyword))) {
+        const gastosPorCategoria = await DatabaseService.getGastosPorCategoria(
+          new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString(),
+          new Date().toISOString()
+        );
+        contextPrompt = `📊 Análise detalhada de gastos por categoria:\n${JSON.stringify(gastosPorCategoria, null, 2)}`;
+      }
+      else if (incomeKeywords.some(keyword => lowerCaseMessage.includes(keyword))) {
+        const lancamentos = await DatabaseService.getLancamentos({
+          dataInicio: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString(),
+          dataFim: new Date().toISOString(),
+          tipo: 'RECEITA'
+        });
+        contextPrompt = `💵 Dados de receitas do usuário para este mês:\n${JSON.stringify(lancamentos.map(l => ({
+          descricao: l.descricao,
+          valor: l.valor,
+          data: l.data,
+          categoria: l.categoria?.nome
+        })), null, 2)}`;
+      }
+      else if (budgetKeywords.some(keyword => lowerCaseMessage.includes(keyword))) {
+        const orcamentos = await DatabaseService.getOrcamentos(
+          new Date().getFullYear(),
+          new Date().getMonth() + 1
+        );
+        contextPrompt = `📋 Dados de orçamentos do usuário para este mês:\n${JSON.stringify(orcamentos, null, 2)}`;
+      }
+      else if (trendKeywords.some(keyword => lowerCaseMessage.includes(keyword))) {
+        const evolucao = await DatabaseService.getEvolucaoMensal(6);
+        contextPrompt = `📈 Evolução financeira dos últimos 6 meses:\n${JSON.stringify(evolucao, null, 2)}`;
       }
     } catch (error) {
       console.error('Erro ao buscar contexto para IA:', error);
-      contextPrompt = 'Ocorreu um erro ao tentar buscar os dados financeiros para responder a esta pergunta. Informe o usuário sobre o erro.';
+      contextPrompt = 'Ocorreu um erro ao tentar buscar os dados financeiros para responder a esta pergunta. Informe o usuário sobre o erro e sugira tentar novamente.';
     }
     
-    // Modificado: O prompt final agora contém instruções de estilo mais explícitas.
+    // Prompt final com instruções de formatação melhoradas
     const finalPrompt = `
-      **Instrução de Formatação e Estilo de Resposta:**
+      **CONTEXTO FINANCEIRO:**
       ---
-      A moeda do usuário é ${currency}.
-      1. **Formatação de Moeda:** Sempre que apresentar um valor monetário (receitas, despesas, saldos), formate-o usando "R$" (se a moeda for BRL) ANTES do número. Exemplo: "um total de R$ 50,00 em receitas".
-      2. **Clareza:** Evite frases ambíguas como "10 receitas". Em vez disso, diga "um total de R$ 10,00 de receitas" ou "suas receitas totalizaram R$ 10,00".
-      3. **Jamais use o termo genérico "unidades monetárias".**
-      ---
-
-      **Contexto Financeiro Fornecido:**
-      ---
+      Moeda do usuário: ${currency}
       ${contextPrompt}
       ---
       
-      Com base no contexto e nas instruções de formatação e estilo acima, responda à seguinte pergunta do usuário de forma clara, amigável e objetiva:
+      **INSTRUÇÕES DE RESPOSTA:**
+      1. **Formatação de Moeda:** Sempre use "R$" para valores em BRL, "$" para USD, "€" para EUR
+      2. **Clareza:** Seja específico com números e valores
+      3. **Insights:** Forneça análises úteis e sugestões práticas
+      4. **Educação:** Explique conceitos quando apropriado
+      5. **Ação:** Sugira próximos passos quando relevante
       
-      **Pergunta do Usuário:** "${userMessage}"
+      **PERGUNTA DO USUÁRIO:** "${userMessage}"
+      
+      Responda de forma completa, útil e educativa, usando os dados fornecidos quando disponíveis.
     `;
     
     return this._callOpenAI(finalPrompt);
   }
 
-  // As funções abaixo agora usam o helper _callOpenAI para consistência.
+  // Funções especializadas mantidas para compatibilidade
   static async categorizarDespesa(descricao: string, categorias: string[]): Promise<string> {
     const prompt = `
 Baseado na descrição "${descricao}", qual das seguintes categorias melhor se adequa?
@@ -158,22 +241,268 @@ Responda apenas com o nome da categoria mais apropriada.
 
   static async analisarGastos(dadosFinanceiros: any): Promise<string> {
     const prompt = `
-Analise os seguintes dados financeiros e forneça insights:
-- Receitas totais: R$ ${dadosFinanceiros.receitas}
-- Despesas totais: R$ ${dadosFinanceiros.despesas}
-- Saldo: R$ ${dadosFinanceiros.saldo}
-- Principais categorias de gastos: ${dadosFinanceiros.categorias?.join(', ') || 'Não informado'}
-Forneça uma análise concisa com sugestões de melhoria.
+Você é um Analista Financeiro Sênior e especialista em visualização de dados. Sua tarefa é analisar os dados financeiros do usuário e retornar *exclusivamente* um array de objetos JSON contendo insights.
+
+**Formato de Saída Obrigatório:**
+A sua resposta deve ser um array JSON. Cada objeto no array representa um insight e deve ter a seguinte estrutura:
+{
+  "title": "Um título curto e impactante para o insight (máx 4 palavras).",
+  "description": "Uma frase explicativa, concisa e acionável (máx 20 palavras).",
+  "type": "A classificação do insight. Use *exclusivamente* um dos seguintes valores: 'positivo', 'atencao', 'informativo'.",
+  "icon": "O nome de um ícone da biblioteca lucide-react que melhor representa o insight. Escolha *exclusivamente* da seguinte lista: ['TrendingUp', 'TrendingDown', 'AlertTriangle', 'PiggyBank', 'CalendarDays', 'Wallet', 'Info', 'Scale']"
+}
+
+**Dados Financeiros do Usuário para o Período de "${dadosFinanceiros.periodo}":**
+- Receitas: R$ ${dadosFinanceiros.receitas?.toFixed(2) || '0.00'}
+- Despesas: R$ ${dadosFinanceiros.despesas?.toFixed(2) || '0.00'}
+- Taxa de Poupança: ${dadosFinanceiros.taxaPoupanca?.toFixed(1) || '0'}%
+- Gasto Diário Médio: R$ ${dadosFinanceiros.gastoDiarioMedio?.toFixed(2) || '0.00'}
+- Patrimônio Líquido: R$ ${dadosFinanceiros.patrimonioLiquido?.toFixed(2) || '0.00'}
+- Principais Categorias de Gastos: ${dadosFinanceiros.categoriasMaisGastas?.join(', ') || 'Nenhuma'}
+
+**Regras para Gerar os Insights:**
+1.  Gere de 2 a 4 insights no total. O primeiro insight deve ser sempre o mais relevante (o maior ponto positivo ou o maior ponto de atenção).
+2.  Se a "Taxa de Poupança" for maior que 20%, crie um insight 'positivo' sobre isso. Se for negativa, crie um de 'atencao'.
+3.  Analise o "Gasto Diário Médio". Se for um valor relevante comparado à receita, crie um insight 'informativo' ou de 'atencao'.
+4.  Se o saldo for negativo, crie um insight de 'atencao' sobre o déficit.
+5.  Use a "Principal Categoria de Gastos" para gerar um insight específico e acionável.
+6.  Seja direto, certeiro e use uma linguagem que motive o usuário a agir.
+
+**Exemplo de Saída Esperada (apenas para referência de formato):**
+[
+  {
+    "title": "Excelente Poupança!",
+    "type": "positivo",
+    "description": "Você está poupando ${dadosFinanceiros.taxaPoupanca?.toFixed(1)}% da sua renda. Continue assim!",
+    "icon": "TrendingUp"
+  },
+  {
+    "title": "Atenção ao Gasto Diário",
+    "type": "atencao",
+    "description": "Seu gasto médio é de R$ ${dadosFinanceiros.gastoDiarioMedio?.toFixed(2)}. Monitore para otimizar.",
+    "icon": "AlertTriangle"
+  }
+]
+
+Lembre-se: sua resposta deve conter APENAS o array JSON, sem nenhum texto adicional, explicação ou formatação como \`\`\`json.
 `;
     return this._callOpenAI(prompt);
   }
 
-  static async preverGastos(historicoGastos: number[]): Promise<string> {
-    const media = historicoGastos.reduce((a, b) => a + b, 0) / historicoGastos.length;
+  static async gerarInsightsPersonalizados(dadosCompletos: any): Promise<string> {
     const prompt = `
-Baseado no histórico de gastos mensais: ${historicoGastos.map(g => `R$ ${g}`).join(', ')}
-Média mensal: R$ ${media.toFixed(2)}
-Forneça uma previsão para o próximo mês e sugestões para otimização dos gastos.
+Analise os dados financeiros completos do usuário e gere insights personalizados:
+
+DADOS: ${JSON.stringify(dadosCompletos, null, 2)}
+
+Forneça insights sobre:
+1. Padrões de comportamento financeiro
+2. Oportunidades de economia
+3. Riscos identificados
+4. Recomendações personalizadas
+5. Metas sugeridas
+
+Seja específico e prático nas recomendações.
+`;
+    return this._callOpenAI(prompt);
+  }
+
+  static async gerarDicasFinanceiras(dadosFinanceiros: any): Promise<string> {
+    const prompt = `
+Você é um Consultor Financeiro Pessoal especializado em educação financeira. Sua tarefa é analisar os dados financeiros do usuário e retornar *exclusivamente* um array de objetos JSON contendo dicas práticas e personalizadas.
+
+**Formato de Saída Obrigatório:**
+A sua resposta deve ser um array JSON. Cada objeto no array representa uma dica e deve ter a seguinte estrutura:
+{
+  "title": "Título curto e direto da dica (máx 4 palavras).",
+  "description": "Uma dica prática, objetiva e acionável (máx 20 palavras).",
+  "type": "Classificação da dica. Use *exclusivamente* um dos seguintes valores: 'positivo', 'atencao', 'informativo'.",
+  "icon": "O nome de um ícone da biblioteca lucide-react que melhor representa a dica. Escolha *exclusivamente* da seguinte lista: ['TrendingUp', 'TrendingDown', 'AlertTriangle', 'PiggyBank', 'CalendarDays', 'Wallet', 'Info', 'Scale']"
+}
+
+**Dados Financeiros do Usuário para o Período de "${dadosFinanceiros.periodo}":**
+- Receitas: R$ ${dadosFinanceiros.receitas?.toFixed(2) || '0.00'}
+- Despesas: R$ ${dadosFinanceiros.despesas?.toFixed(2) || '0.00'}
+- Taxa de Poupança: ${dadosFinanceiros.taxaPoupanca?.toFixed(1) || '0'}%
+- Gasto Diário Médio: R$ ${dadosFinanceiros.gastoDiarioMedio?.toFixed(2) || '0.00'}
+- Patrimônio Líquido: R$ ${dadosFinanceiros.patrimonioLiquido?.toFixed(2) || '0.00'}
+- Principais Categorias de Gastos: ${dadosFinanceiros.categoriasMaisGastas?.join(', ') || 'Nenhuma'}
+
+**Regras para Gerar as Dicas:**
+1. Gere de 2 a 4 dicas no total. A primeira dica deve ser sempre a mais relevante para o momento financeiro do usuário.
+2. Foque em ações práticas, economia, organização, controle de gastos, uso consciente do crédito, planejamento e educação financeira.
+3. Se identificar riscos ou oportunidades, destaque-os de forma construtiva.
+4. Use linguagem motivadora, simples e positiva.
+5. Não repita dicas idênticas aos insights.
+
+**Exemplo de Saída Esperada (apenas para referência de formato):**
+[
+  {
+    "title": "Revise Assinaturas",
+    "type": "atencao",
+    "description": "Verifique serviços recorrentes e cancele os que não usa.",
+    "icon": "AlertTriangle"
+  },
+  {
+    "title": "Poupe no Início",
+    "type": "positivo",
+    "description": "Separe parte da renda assim que receber para garantir economia.",
+    "icon": "PiggyBank"
+  }
+]
+
+Lembre-se: sua resposta deve conter APENAS o array JSON, sem nenhum texto adicional, explicação ou formatação como \`\`\`json.
+`;
+    return this._callOpenAI(prompt);
+  }
+
+  static async analisarReceitas(dadosFinanceiros: any): Promise<string> {
+    const prompt = `
+Você é um Analista Financeiro especializado em análise de receitas. Sua tarefa é analisar os dados de receitas do usuário e retornar *exclusivamente* um array de objetos JSON contendo insights específicos sobre receitas.
+
+**Formato de Saída Obrigatório:**
+A sua resposta deve ser um array JSON. Cada objeto no array representa um insight e deve ter a seguinte estrutura:
+{
+  "title": "Um título curto e impactante para o insight (máx 4 palavras).",
+  "description": "Uma frase explicativa, concisa e acionável (máx 20 palavras).",
+  "type": "A classificação do insight. Use *exclusivamente* um dos seguintes valores: 'positivo', 'atencao', 'informativo'.",
+  "icon": "O nome de um ícone da biblioteca lucide-react que melhor representa o insight. Escolha *exclusivamente* da seguinte lista: ['TrendingUp', 'TrendingDown', 'AlertTriangle', 'PiggyBank', 'CalendarDays', 'Wallet', 'Info', 'Scale']"
+}
+
+**Dados de Receitas do Usuário para o Período de "${dadosFinanceiros.periodo}":**
+- Receitas Totais: R$ ${dadosFinanceiros.receitas?.toFixed(2) || '0.00'}
+- Despesas: R$ ${dadosFinanceiros.despesas?.toFixed(2) || '0.00'}
+- Saldo: R$ ${(dadosFinanceiros.receitas - dadosFinanceiros.despesas)?.toFixed(2) || '0.00'}
+- Taxa de Poupança: ${dadosFinanceiros.taxaPoupanca?.toFixed(1) || '0'}%
+- Patrimônio Líquido: R$ ${dadosFinanceiros.patrimonioLiquido?.toFixed(2) || '0.00'}
+
+**Regras para Gerar os Insights de Receitas:**
+1. Gere de 2 a 4 insights no total, focando especificamente em receitas.
+2. Analise a diversificação de fontes de renda.
+3. Compare receitas com despesas para avaliar capacidade de poupança.
+4. Identifique oportunidades de aumento de receitas.
+5. Avalie a estabilidade e consistência das receitas.
+6. Seja direto, certeiro e use uma linguagem que motive o usuário a agir.
+
+**Exemplo de Saída Esperada (apenas para referência de formato):**
+[
+  {
+    "title": "Receitas Estáveis",
+    "type": "positivo",
+    "description": "Suas receitas estão consistentes. Continue mantendo essa estabilidade.",
+    "icon": "TrendingUp"
+  },
+  {
+    "title": "Oportunidade de Crescimento",
+    "type": "informativo",
+    "description": "Considere diversificar suas fontes de renda para maior segurança.",
+    "icon": "PiggyBank"
+  }
+]
+
+Lembre-se: sua resposta deve conter APENAS o array JSON, sem nenhum texto adicional, explicação ou formatação como \`\`\`json.
+`;
+    return this._callOpenAI(prompt);
+  }
+
+  static async analisarDespesas(dadosFinanceiros: any): Promise<string> {
+    const prompt = `
+Você é um Analista Financeiro especializado em análise de despesas. Sua tarefa é analisar os dados de despesas do usuário e retornar *exclusivamente* um array de objetos JSON contendo insights específicos sobre despesas.
+
+**Formato de Saída Obrigatório:**
+A sua resposta deve ser um array JSON. Cada objeto no array representa um insight e deve ter a seguinte estrutura:
+{
+  "title": "Um título curto e impactante para o insight (máx 4 palavras).",
+  "description": "Uma frase explicativa, concisa e acionável (máx 20 palavras).",
+  "type": "A classificação do insight. Use *exclusivamente* um dos seguintes valores: 'positivo', 'atencao', 'informativo'.",
+  "icon": "O nome de um ícone da biblioteca lucide-react que melhor representa o insight. Escolha *exclusivamente* da seguinte lista: ['TrendingUp', 'TrendingDown', 'AlertTriangle', 'PiggyBank', 'CalendarDays', 'Wallet', 'Info', 'Scale']"
+}
+
+**Dados de Despesas do Usuário para o Período de "${dadosFinanceiros.periodo}":**
+- Despesas Totais: R$ ${dadosFinanceiros.despesas?.toFixed(2) || '0.00'}
+- Receitas: R$ ${dadosFinanceiros.receitas?.toFixed(2) || '0.00'}
+- Gasto Diário Médio: R$ ${dadosFinanceiros.gastoDiarioMedio?.toFixed(2) || '0.00'}
+- Principais Categorias de Gastos: ${dadosFinanceiros.categoriasMaisGastas?.join(', ') || 'Nenhuma'}
+- Taxa de Poupança: ${dadosFinanceiros.taxaPoupanca?.toFixed(1) || '0'}%
+
+**Regras para Gerar os Insights de Despesas:**
+1. Gere de 2 a 4 insights no total, focando especificamente em despesas.
+2. Analise os padrões de gastos por categoria.
+3. Identifique oportunidades de redução de custos.
+4. Avalie se as despesas estão alinhadas com as receitas.
+5. Identifique gastos desnecessários ou que podem ser otimizados.
+6. Seja direto, certeiro e use uma linguagem que motive o usuário a agir.
+
+**Exemplo de Saída Esperada (apenas para referência de formato):**
+[
+  {
+    "title": "Controle de Gastos",
+    "type": "positivo",
+    "description": "Suas despesas estão bem controladas em relação às receitas.",
+    "icon": "TrendingDown"
+  },
+  {
+    "title": "Otimize Categorias",
+    "type": "atencao",
+    "description": "Foque na redução dos gastos em ${dadosFinanceiros.categoriasMaisGastas?.[0] || 'principais categorias'}.",
+    "icon": "AlertTriangle"
+  }
+]
+
+Lembre-se: sua resposta deve conter APENAS o array JSON, sem nenhum texto adicional, explicação ou formatação como \`\`\`json.
+`;
+    return this._callOpenAI(prompt);
+  }
+
+  static async gerarRelatoriosInteligentes(dadosFinanceiros: any): Promise<string> {
+    const prompt = `
+Você é um Analista Financeiro Sênior especializado em relatórios financeiros. Sua tarefa é analisar os dados financeiros do usuário e retornar *exclusivamente* um array de objetos JSON contendo relatórios inteligentes e detalhados.
+
+**Formato de Saída Obrigatório:**
+A sua resposta deve ser um array JSON. Cada objeto no array representa um relatório e deve ter a seguinte estrutura:
+{
+  "title": "Um título curto e impactante para o relatório (máx 4 palavras).",
+  "description": "Uma análise detalhada e acionável (máx 20 palavras).",
+  "type": "A classificação do relatório. Use *exclusivamente* um dos seguintes valores: 'positivo', 'atencao', 'informativo'.",
+  "icon": "O nome de um ícone da biblioteca lucide-react que melhor representa o relatório. Escolha *exclusivamente* da seguinte lista: ['TrendingUp', 'TrendingDown', 'AlertTriangle', 'PiggyBank', 'CalendarDays', 'Wallet', 'Info', 'Scale']"
+}
+
+**Dados Financeiros Completos do Usuário para o Período de "${dadosFinanceiros.periodo}":**
+- Receitas: R$ ${dadosFinanceiros.receitas?.toFixed(2) || '0.00'}
+- Despesas: R$ ${dadosFinanceiros.despesas?.toFixed(2) || '0.00'}
+- Saldo: R$ ${(dadosFinanceiros.receitas - dadosFinanceiros.despesas)?.toFixed(2) || '0.00'}
+- Taxa de Poupança: ${dadosFinanceiros.taxaPoupanca?.toFixed(1) || '0'}%
+- Gasto Diário Médio: R$ ${dadosFinanceiros.gastoDiarioMedio?.toFixed(2) || '0.00'}
+- Patrimônio Líquido: R$ ${dadosFinanceiros.patrimonioLiquido?.toFixed(2) || '0.00'}
+- Principais Categorias de Gastos: ${dadosFinanceiros.categoriasMaisGastas?.join(', ') || 'Nenhuma'}
+- Total de Contas: ${dadosFinanceiros.totalContas || 0}
+- Total de Lançamentos: ${dadosFinanceiros.totalLancamentos || 0}
+
+**Regras para Gerar os Relatórios Inteligentes:**
+1. Gere de 2 a 4 relatórios no total, focando em análises profundas e estratégicas.
+2. Analise a saúde financeira geral do usuário.
+3. Identifique tendências e padrões de comportamento financeiro.
+4. Forneça recomendações estratégicas para melhorias.
+5. Avalie a diversificação e gestão de ativos.
+6. Seja detalhado, estratégico e use uma linguagem profissional.
+
+**Exemplo de Saída Esperada (apenas para referência de formato):**
+[
+  {
+    "title": "Saúde Financeira",
+    "type": "positivo",
+    "description": "Sua situação financeira está equilibrada com boa capacidade de poupança.",
+    "icon": "TrendingUp"
+  },
+  {
+    "title": "Estratégia de Investimento",
+    "type": "informativo",
+    "description": "Considere diversificar seus investimentos para maior rentabilidade.",
+    "icon": "PiggyBank"
+  }
+]
+
+Lembre-se: sua resposta deve conter APENAS o array JSON, sem nenhum texto adicional, explicação ou formatação como \`\`\`json.
 `;
     return this._callOpenAI(prompt);
   }

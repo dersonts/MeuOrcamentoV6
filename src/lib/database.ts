@@ -8,6 +8,7 @@ type Lancamento = Tables['lancamentos']['Row'];
 type MetaFinanceira = Tables['metas_financeiras']['Row'];
 type Orcamento = Tables['orcamentos']['Row'];
 type Lembrete = Tables['lembretes']['Row'];
+type Patrimonio = Tables['patrimonio']['Row'];
 
 export class DatabaseService {
   // Categorias
@@ -49,9 +50,49 @@ export class DatabaseService {
   }
 
   static async deleteCategoria(id: string): Promise<void> {
+    // Verificar se a categoria tem lançamentos associados antes de deletar
+    const { data: lancamentos, error: checkError } = await supabase
+      .from('lancamentos')
+      .select('id')
+      .eq('categoria_id', id)
+      .limit(1);
+
+    if (checkError) throw checkError;
+
+    if (lancamentos && lancamentos.length > 0) {
+      throw new Error('Não é possível excluir uma categoria que possui lançamentos associados');
+    }
+
+    // Verificar se a categoria tem orçamentos associados
+    const { data: orcamentos, error: budgetError } = await supabase
+      .from('orcamentos')
+      .select('id')
+      .eq('categoria_id', id)
+      .limit(1);
+
+    if (budgetError) throw budgetError;
+
+    if (orcamentos && orcamentos.length > 0) {
+      throw new Error('Não é possível excluir uma categoria que possui orçamentos associados');
+    }
+
+    // Verificar se a categoria tem metas associadas
+    const { data: metas, error: goalsError } = await supabase
+      .from('metas_financeiras')
+      .select('id')
+      .eq('categoria_id', id)
+      .limit(1);
+
+    if (goalsError) throw goalsError;
+
+    if (metas && metas.length > 0) {
+      throw new Error('Não é possível excluir uma categoria que possui metas associadas');
+    }
+
+    // Se não há dependências, fazer hard delete
     const { error } = await supabase
       .from('categorias')
-      .update({ ativa: false })
+      .delete()
       .eq('id', id);
 
     if (error) throw error;
@@ -100,9 +141,36 @@ export class DatabaseService {
   }
 
   static async deleteConta(id: string): Promise<void> {
+    // Verificar se a conta tem lançamentos associados antes de deletar
+    const { data: lancamentos, error: checkError } = await supabase
+      .from('lancamentos')
+      .select('id')
+      .eq('conta_id', id)
+      .limit(1);
+
+    if (checkError) throw checkError;
+
+    if (lancamentos && lancamentos.length > 0) {
+      throw new Error('Não é possível excluir uma conta que possui lançamentos associados');
+    }
+
+    // Verificar se a conta é destino de transferências
+    const { data: transferencias, error: transferError } = await supabase
+      .from('lancamentos')
+      .select('id')
+      .eq('conta_destino_id', id)
+      .limit(1);
+
+    if (transferError) throw transferError;
+
+    if (transferencias && transferencias.length > 0) {
+      throw new Error('Não é possível excluir uma conta que é destino de transferências');
+    }
+
+    // Se não há dependências, fazer hard delete
     const { error } = await supabase
       .from('contas')
-      .update({ ativa: false })
+      .delete()
       .eq('id', id);
 
     if (error) throw error;
@@ -125,7 +193,8 @@ export class DatabaseService {
         conta:contas!lancamentos_conta_id_fkey(nome, tipo),
         conta_destino:contas!lancamentos_conta_destino_id_fkey(nome, tipo)
       `)
-      .order('data', { ascending: false });
+      .order('data', { ascending: false })
+      .order('created_at', { ascending: false });
 
     if (filters?.dataInicio) {
       query = query.gte('data', filters.dataInicio);
@@ -156,13 +225,18 @@ export class DatabaseService {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Usuário não autenticado');
 
+    // Se é uma despesa no crédito, não alterar o saldo da conta
+    // Se é débito ou receita, o trigger do banco vai atualizar o saldo automaticamente
     const { data, error } = await supabase
       .from('lancamentos')
       .insert({ ...lancamento, user_id: user.id })
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('Erro ao criar lançamento no Supabase:', error, lancamento);
+      throw error;
+    }
     return data;
   }
 
@@ -181,6 +255,54 @@ export class DatabaseService {
   static async deleteLancamento(id: string): Promise<void> {
     const { error } = await supabase
       .from('lancamentos')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+  }
+
+  // Patrimônio (para dívidas)
+  static async getPatrimonio(): Promise<Patrimonio[]> {
+    const { data, error } = await supabase
+      .from('patrimonio')
+      .select('*')
+      .eq('ativo', true)
+      .order('nome', { ascending: true });
+
+    if (error) throw error;
+    return data || [];
+  }
+
+  static async createPatrimonio(patrimonio: Tables['patrimonio']['Insert']): Promise<Patrimonio> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Usuário não autenticado');
+
+    const { data, error } = await supabase
+      .from('patrimonio')
+      .insert({ ...patrimonio, user_id: user.id })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
+
+  static async updatePatrimonio(id: string, updates: Tables['patrimonio']['Update']): Promise<Patrimonio> {
+    const { data, error } = await supabase
+      .from('patrimonio')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
+
+  static async deletePatrimonio(id: string): Promise<void> {
+    // Para patrimônio, fazer hard delete direto já que não há dependências críticas
+    const { error } = await supabase
+      .from('patrimonio')
       .delete()
       .eq('id', id);
 
@@ -454,17 +576,16 @@ export class DatabaseService {
       .from('lancamentos')
       .select(`
         valor,
+        forma_pagamento,
         categoria:categorias(nome, cor)
       `)
       .eq('tipo', 'DESPESA')
-      // CORREÇÃO: Alterado de .eq() para .in() para incluir lançamentos pendentes
       .in('status', ['CONFIRMADO', 'PENDENTE']) 
       .gte('data', dataInicio)
       .lte('data', dataFim);
 
     if (error) throw error;
 
-    // O restante da função para agrupar por categoria permanece o mesmo
     const grupos = (data || []).reduce((acc, item) => {
       const categoria = item.categoria?.nome || 'Sem categoria';
       const cor = item.categoria?.cor || '#6B7280';
@@ -487,6 +608,52 @@ export class DatabaseService {
     return data;
   }
 
+  // Dívidas
+  static async getDividas(): Promise<any[]> {
+    const { data, error } = await supabase
+      .from('dividas')
+      .select('*')
+      .order('data_vencimento', { ascending: true });
+
+    if (error) throw error;
+    return data || [];
+  }
+
+  static async createDivida(divida: any): Promise<any> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Usuário não autenticado');
+
+    const { data, error } = await supabase
+      .from('dividas')
+      .insert({ ...divida, user_id: user.id })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
+
+  static async updateDivida(id: string, updates: any): Promise<any> {
+    const { data, error } = await supabase
+      .from('dividas')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
+
+  static async deleteDivida(id: string): Promise<void> {
+    const { error } = await supabase
+      .from('dividas')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+  }
+
   // Faturas de Cartão de Crédito
   static async getFaturaCartao(contaId: string, dataInicio: string, dataFim: string) {
     const { data, error } = await supabase
@@ -497,6 +664,7 @@ export class DatabaseService {
       `)
       .eq('conta_id', contaId)
       .eq('tipo', 'DESPESA')
+      .eq('forma_pagamento', 'CREDITO')
       .gte('data', dataInicio)
       .lte('data', dataFim)
       .order('data', { ascending: false });
@@ -505,7 +673,7 @@ export class DatabaseService {
     return data || [];
   }
 
-  static async pagarFatura(contaId: string, contaOrigemId: string, valor: number, dataInicio: string, dataFim: string) {
+  static async pagarFatura(contaId: string, contaOrigemId: string, valor: number, dataInicio: string, dataFim: string, valorParcial?: boolean) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Usuário não autenticado');
 
@@ -516,27 +684,32 @@ export class DatabaseService {
         user_id: user.id,
         conta_id: contaOrigemId,
         categoria_id: await this.getCategoriaCartaoCredito(),
-        descricao: 'Pagamento de Fatura do Cartão',
+        descricao: valorParcial ? 'Pagamento Parcial de Fatura do Cartão' : 'Pagamento de Fatura do Cartão',
         valor: valor,
         data: new Date().toISOString().split('T')[0],
         tipo: 'DESPESA',
+        forma_pagamento: 'DEBITO',
         status: 'CONFIRMADO'
       });
 
     if (lancamentoError) throw lancamentoError;
 
-    // Marcar todos os lançamentos da fatura como pagos
-    const { error: updateError } = await supabase
-      .from('lancamentos')
-      .update({ status: 'CONFIRMADO' })
-      .eq('conta_id', contaId)
-      .eq('tipo', 'DESPESA')
-      .gte('data', dataInicio)
-      .lte('data', dataFim);
+    if (!valorParcial) {
+      // Marcar todos os lançamentos da fatura como pagos
+      const { error: updateError } = await supabase
+        .from('lancamentos')
+        .update({ status: 'CONFIRMADO' })
+        .eq('conta_id', contaId)
+        .eq('tipo', 'DESPESA')
+        .eq('forma_pagamento', 'CREDITO')
+        .gte('data', dataInicio)
+        .lte('data', dataFim);
 
-    if (updateError) throw updateError;
+      if (updateError) throw updateError;
+    }
   }
 
+  // Faturas de Cartão de Crédito
   private static async getCategoriaCartaoCredito(): Promise<string> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Usuário não autenticado');

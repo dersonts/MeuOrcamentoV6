@@ -4,6 +4,7 @@ import { Layout } from './components/Layout';
 import { EnhancedDashboard } from './components/Dashboard/EnhancedDashboard';
 import { Lancamentos } from './components/Lancamentos';
 import { Contas } from './components/Contas';
+import { FaturaCartao } from './components/FaturaCartao/FaturaCartao';
 import { Categorias } from './components/Categorias';
 import { MetasFinanceiras } from './components/Metas/MetasFinanceiras';
 import { Transferencias } from './components/Transferencias/Transferencias';
@@ -15,46 +16,37 @@ import { RelatoriosSankey } from './components/RelatoriosSankey/RelatoriosSankey
 import { OCRRecibos } from './components/OCRRecibos/OCRRecibos';
 import { Configuracoes } from './components/Configuracoes';
 import { AuthService, type AuthUser } from './lib/auth';
+import { Toast } from './components/Common/Toast';
+import { DatabaseService } from './lib/database';
 
 function App() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState('dashboard');
+  const [navigationHistory, setNavigationHistory] = useState<string[]>(['dashboard']);
+  const [toast, setToast] = useState<{ message: string; type?: 'success' | 'error' | 'info' | 'warning' } | null>(null);
+  const [lancamentos, setLancamentos] = useState<any[]>([]);
+  const showToast = (message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info') => {
+    setToast({ message, type });
+  };
 
+  // useEffect foi reescrito para ser mais simples e robusto.
   useEffect(() => {
     let mounted = true;
 
-    // Função para verificar usuário atual
-    const checkUser = async () => {
-      try {
-        const currentUser = await AuthService.getCurrentUser();
-        if (mounted) {
-          setUser(currentUser);
-          
-          // Aplicar tema se disponível
-          if (currentUser?.profile?.tema) {
-            AuthService.applyTheme(currentUser.profile.tema);
-          }
-        }
-      } catch (error) {
-        console.error('Error checking user:', error);
-        if (mounted) {
-          setUser(null);
-        }
-      } finally {
-        if (mounted) {
-          setLoading(false);
-        }
-      }
-    };
-
-    // Verificar usuário inicial
-    checkUser();
-
-    // Escutar mudanças no estado de autenticação
+    // Apenas o onAuthStateChange é necessário. Ele lida com o estado inicial
+    // e com todas as mudanças de autenticação (login/logout).
     const { data: { subscription } } = AuthService.onAuthStateChange((user) => {
       if (mounted) {
         setUser(user);
+        
+        // Aplica o tema se o usuário estiver definido
+        if (user?.profile?.tema) {
+          AuthService.applyTheme(user.profile.tema);
+        }
+        
+        // Assim que o estado do usuário é conhecido (seja ele nulo ou não),
+        // o carregamento é finalizado.
         setLoading(false);
       }
     });
@@ -63,16 +55,49 @@ function App() {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, []); // O array de dependências vazio garante que o efeito rode apenas uma vez.
+
+  useEffect(() => {
+    if (user) {
+      DatabaseService.getLancamentos().then(setLancamentos);
+    }
+  }, [user]);
+
+  // Função melhorada para navegação com histórico
+  const handlePageChange = (page: string) => {
+    setCurrentPage(page);
+    setNavigationHistory(prev => {
+      const newHistory = [...prev];
+      const existingIndex = newHistory.indexOf(page);
+      if (existingIndex !== -1) {
+        newHistory.splice(existingIndex, 1);
+      }
+      newHistory.push(page);
+      return newHistory.slice(-10);
+    });
+  };
+
+  // Função para voltar à página anterior
+  const handleGoBack = () => {
+    if (navigationHistory.length > 1) {
+      const newHistory = [...navigationHistory];
+      newHistory.pop();
+      const previousPage = newHistory[newHistory.length - 1] || 'dashboard';
+      setCurrentPage(previousPage);
+      setNavigationHistory(newHistory);
+    }
+  };
 
   const renderPage = () => {
     switch (currentPage) {
       case 'dashboard':
-        return <EnhancedDashboard onNavigate={setCurrentPage} />;
+        return <EnhancedDashboard onNavigate={handlePageChange} lancamentos={lancamentos} />;
       case 'lancamentos':
-        return <Lancamentos />;
+        return <Lancamentos user={user} showToast={showToast} />;
       case 'contas':
-        return <Contas />;
+        return <Contas user={user} />;
+      case 'fatura':
+        return <FaturaCartao />;
       case 'categorias':
         return <Categorias />;
       case 'metas':
@@ -94,7 +119,7 @@ function App() {
       case 'configuracoes':
         return <Configuracoes />;
       default:
-        return <EnhancedDashboard onNavigate={setCurrentPage} />;
+        return <EnhancedDashboard onNavigate={handlePageChange} lancamentos={lancamentos} />;
     }
   };
 
@@ -112,20 +137,32 @@ function App() {
 
   // Tela de autenticação
   if (!user) {
-    return <AuthPage onSuccess={() => {
-      // O onAuthStateChange vai lidar com a mudança de estado
-    }} />;
+    // A propriedade onSuccess é mantida para o caso de alguma lógica específica ser necessária após o login,
+    // mas o listener onAuthStateChange é quem realmente gerencia a transição de tela.
+    return <AuthPage onSuccess={() => setLoading(false)} />;
   }
 
   // App principal
   return (
-    <Layout 
-      currentPage={currentPage} 
-      onPageChange={setCurrentPage}
-      user={user}
-    >
-      {renderPage()}
-    </Layout>
+    <>
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
+      <Layout 
+        currentPage={currentPage} 
+        onPageChange={handlePageChange}
+        onGoBack={handleGoBack}
+        canGoBack={navigationHistory.length > 1}
+        user={user as AuthUser}
+        lancamentos={lancamentos}
+      >
+        {renderPage()}
+      </Layout>
+    </>
   );
 }
 
